@@ -9,7 +9,6 @@ This script:
 
 from seleniumbase import Driver
 from time import sleep
-import time
 import os
 from dotenv import load_dotenv
 import base64
@@ -116,9 +115,9 @@ def get_2fa_code_for_eproc_trf4() -> str:
     - [2] Eproc/TRF4  <- This one (index 1 in 0-based)
     - [3] Eproc/TJSC
     """
-    export_data = "Ck8KFDAyMzIwZjZmMmVlZjg2M2Q0NmQ1EhBFbGlzYW5kcmEgQmVja2VyGgpFcHJvYy9USlJTIAEoATACQhM0NmFjNjExNzI3NzI4OTk0MDIyCk8KFGYzZDQyZTQxYjM2YmZiMTlkZmRiEhBFbGlzYW5kcmEgQmVja2VyGgpFcHJvYy9UUkY0IAEoATACQhMxOTM5MDQxNzMxNDE5MDc3MzQ5ClAKFDYxODI4ZTA2OWMxNDQwM2E0MDhmEhFFbGlzYW5kcmEgIEJlY2tlchoKRXByb2MvVEpTQyABKAEwAkITOGI4NzczMTc1NTg4OTk1Nzk4NxACGAEgAA=="
+    export_data = os.getenv("EXPORT_2FA_DATA")
     if not export_data:
-        raise ValueError("EXPORT_2FA_TJRS4 environment variable not set")
+        raise ValueError("EXPORT_2FA_DATA environment variable not set")
     
     accounts = extract_accounts_from_export(export_data)
     
@@ -185,47 +184,29 @@ def extract_links_from_page_source(html_content):
     return result
 
 
-def get_session_with_phpsessid(max_attempts: int = 3, timeout: float = 10.0):
-    """Step 0: Get a driver session that has a PHPSESSID, with retries."""
-    attempt = 0
+def get_session_with_phpsessid():
+    """Start a browser session and extract the PHPSESSID cookie."""
+    print("Starting browser session...")
 
-    while attempt < max_attempts:
-        attempt += 1
-        print(f"Attempting to obtain session (attempt {attempt}/{max_attempts})...")
+    driver = Driver(
+        headless=True, 
+        uc_cdp_events=True,
+    )
 
-        driver = None
+    driver.get(BASE_URL)
+    sleep(2)
 
-        try:
-            driver = Driver(
-                headless=True, 
-                uc_cdp_events=True,
-            )
+    # Extract PHPSESSID directly from browser cookies
+    cookies = driver.get_cookies()
+    for cookie in cookies:
+        if cookie.get("name") == "PHPSESSID":
+            phpsessid = cookie.get("value")
+            if phpsessid:
+                print(f"Successfully obtained PHPSESSID: {phpsessid[:20]}...")
+                return driver, phpsessid
 
-            driver.get(BASE_URL)
-            sleep(2)
-
-            # Extract PHPSESSID directly from browser cookies
-            start = time.time()
-            while time.time() - start < timeout:
-                cookies = driver.get_cookies()
-                for cookie in cookies:
-                    if cookie.get("name") == "PHPSESSID":
-                        phpsessid = cookie.get("value")
-                        if phpsessid:
-                            print(f"Successfully obtained PHPSESSID: {phpsessid[:20]}...")
-                            return driver, phpsessid
-                sleep(0.5)
-
-            print("No PHPSESSID found in cookies on this attempt, retrying...")
-            if driver:
-                driver.quit()
-        except Exception as e:
-            print(f"Error while trying to obtain PHPSESSID: {e}")
-            traceback.print_exc()
-            if driver:
-                driver.quit()
-
-    raise RuntimeError("Failed to obtain PHPSESSID after multiple attempts")
+    driver.quit()
+    raise RuntimeError("No PHPSESSID found in cookies")
 
 
 def get_credentials_workflow(driver, first_phpsessid: str, usuario: str, senha: str):
@@ -329,7 +310,7 @@ def get_credentials_workflow(driver, first_phpsessid: str, usuario: str, senha: 
 
     print("Entering 2FA...")
     codigo_2fa = get_2fa_code_for_eproc_trf4()
-    print(f"Generated 2FA code: {codigo_2fa}")
+    print(f"Generated 2FA code for Eproc/TRF4")
 
     driver.click('#txtAcessoCodigo')
     sleep(0.2)
@@ -377,8 +358,6 @@ def get_credentials_workflow(driver, first_phpsessid: str, usuario: str, senha: 
         "run_at": datetime.now().isoformat()
     }
 
-    print(f"Extracted endpoints: {json.dumps(extracted_links, indent=2)}")
-
     return credentials
 
 
@@ -398,7 +377,7 @@ def main():
         driver, first_phpsessid = get_session_with_phpsessid()
         credentials = get_credentials_workflow(driver, first_phpsessid, USUARIO, SENHA)
 
-        print("\n--- Result ---")
+        print("\nOutput:")
         print(json.dumps(credentials, indent=2))
 
     except Exception as e:
