@@ -1,0 +1,4 @@
+seleniumbase
+python-dotenv
+pyotp
+beautifulsoup4
